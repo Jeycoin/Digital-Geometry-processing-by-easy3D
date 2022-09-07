@@ -1,0 +1,96 @@
+ void SurfaceMeshSmoothing::BilateralNormalFiltering_smoothing(float Normal_right,
+        int normal_iteration,
+        int vertex_iteration){
+        if (!mesh_->n_vertices())
+        {
+            return;
+        }
+        //1. Calculate Center right;
+        //2. compute each face normal
+        float Center_right = 0;
+        for (SurfaceMesh::Face face : mesh_->faces())
+        {
+            vec3 faceP  = mesh_->compute_face_gravityPoint(face);
+            vec3 face_normal = mesh_->compute_face_normal(face);
+            mesh_->appendBilateral_faceNormal(face, face_normal);
+            for (SurfaceMesh::Halfedge halfeg : SurfaceMesh::HalfedgeAroundFaceCirculator(mesh_, face))
+            {
+                //if (!mesh_->is_border(halfeg))
+                {
+                    SurfaceMesh::Halfedge opposite_halfEg = mesh_->opposite(halfeg);
+                    SurfaceMesh::Face neigborFace = mesh_->face(opposite_halfEg);
+                    vec3 temp_facep = mesh_->compute_face_gravityPoint(neigborFace);
+                    Center_right += abs(length(temp_facep - faceP));//temp_facep.distance2(faceP);
+                }
+            }
+        }
+        Center_right = Center_right / (2 * mesh_->n_faces());
+
+        //step1 : update face normal
+        
+        for (int i = 0;i < normal_iteration;i++)//
+        {
+            float Kp = 0;
+            vec3 Normal;
+            for (SurfaceMesh::Face face : mesh_->faces())
+            {
+                vec3 face_normal = mesh_->compute_face_normal(face);
+                vec3 face_gpoint = mesh_->compute_face_gravityPoint(face);
+
+                for (SurfaceMesh::Halfedge halfeg : SurfaceMesh::HalfedgeAroundFaceCirculator(mesh_, face))
+                {
+                    //if (!mesh_->is_border(halfeg))
+                    {
+                        SurfaceMesh::Halfedge opposite_halfEg = mesh_->opposite(halfeg);
+                        SurfaceMesh::Face neigborFace = mesh_->face(opposite_halfEg);
+                        vec3 nei_normal = mesh_->compute_face_normal(neigborFace);
+                        vec3 nei_gpoint = mesh_->compute_face_gravityPoint(neigborFace);
+                        float nei_Area = mesh_->compute_face_Area(neigborFace);
+                        //Calculate surface Ws
+                        float normal_length = length(nei_normal - face_normal);//nei_normal.distance2(face_normal);
+                        float Ws = exp(-(normal_length * normal_length) / (2 * Normal_right * Normal_right));
+                        //Calculate surface Wc
+                        float center_length = length(nei_gpoint - face_gpoint);//nei_gpoint.distance2(face_gpoint);
+                        float Wc = exp(-(center_length * center_length) / (2 * Center_right * Center_right));
+
+                        //Calculate Kp
+                        Kp += nei_Area * Ws * Wc;
+                        //Calculate N
+                        Normal += nei_Area * Ws * Wc * nei_normal;
+                    }
+                }
+                face_normal = Normal / Kp;
+                face_normal = face_normal.normalize();
+                mesh_->Reset_Bilateral_faceNormal(face, face_normal);
+            }
+        }
+         
+      
+         
+        //step2 : Calculte NewN(f)
+        for (int i = 0;i < vertex_iteration;i++)
+        {
+            for (SurfaceMesh::Vertex vertex : mesh_->vertices())
+            {
+                vec3 dx(0, 0, 0);
+                vec3 Normal(0, 0, 0);
+                int Nei_count = 0;
+                //if (!mesh_->is_border(vertex))
+                {
+                    for (SurfaceMesh::Face nei_vertex_face : SurfaceMesh::FaceAroundVertexCirculator(mesh_, vertex))
+                    {
+                        Nei_count++;
+                        vec3 face_center = mesh_->compute_face_gravityPoint(nei_vertex_face);
+                        Normal = mesh_->Get_Bilateral_faceNormal(nei_vertex_face);
+                        vec3 diff_Vec = face_center - mesh_->position(vertex);
+                       // dx += Normal * (Normal.x * diff_Vec.x + Normal.y * diff_Vec.y + Normal.z * diff_Vec.z);
+                        dx += (Normal.length()*Normal.length()) * (face_center - mesh_->position(vertex));
+                    }
+                    mesh_->position(vertex) += dx/Nei_count;
+                    
+                }
+            }
+        }
+       
+        
+    }
